@@ -9,6 +9,6 @@ By Zhuoyuan Wang, Haiqiao Wang, Yi Wang.
 
 
 ### Environment
-
+Code has been tested with Python 3.9 and PyTorch 1.12.1.
 
 ### Citation
