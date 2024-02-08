@@ -2,7 +2,7 @@
 The publicly available code for medical image registration released by the Smile Lab.
 
 ## Pyramid Attention Network for Medical Image Registration (ISBI 2024)
-Paper Link[ISBI](https://github.com/JuliusWang-7/PAN)
+[Paper Link](https://github.com/JuliusWang-7/PAN)
 
 By Zhuoyuan Wang, Haiqiao Wang, Yi Wang.
 
