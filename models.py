@@ -278,6 +278,8 @@ class LAT(nn.Module):
         self.mid_cell = kernel_size - 1
         self.rpb_size = kernel_size
         self.use_rpb = use_rpb
+        if use_rpb:
+            self.rpb = nn.Parameter(torch.zeros(self.num_heads, self.rpb_size, self.rpb_size, self.rpb_size))
         vectors = [torch.arange(-s // 2 + 1, s // 2 + 1) for s in [kernel_size] * 3]
         grids = torch.meshgrid(vectors)
         grid = torch.stack(grids, -1).type(torch.FloatTensor)
@@ -295,12 +297,15 @@ class LAT(nn.Module):
         N = H * W * T
         num_tokens = int(self.kernel_size ** 3)
 
+        Q = q.reshape(B, H, W, T, self.num_heads, C // self.num_heads).permute(0, 4, 1, 2, 3, 5) * self.scale
         q = q.reshape(B, N, self.num_heads, C // self.num_heads, 1).transpose(3, 4) * self.scale  # 1, N, heads, 1, head_dim
         pd = self.kernel_size - 1  # 2
         pdr = pd // 2  # 1
 
         k = k.permute(0, 4, 1, 2, 3)  # C, H, W, T
         k = nnf.pad(k, (pdr, pdr, pdr, pdr, pdr, pdr))  # 1, C, H+2, W+2, T+2
+        if return_attn_matrix:
+            K = k.reshape(B, self.num_heads, C // self.num_heads, H + pd, W + pd, T + pd).permute(0, 1, 3, 4, 5, 2)
         k = k.flatten(0, 1)  # C, H+2, W+2, T+2
         k = k.unfold(1, self.kernel_size, 1).unfold(2, self.kernel_size, 1).unfold(3, self.kernel_size, 1).permute(0, 4, 5, 6, 1, 2, 3)  # C, 3, 3, 3, H, W, T
         k = k.reshape(B, self.num_heads, C // self.num_heads, num_tokens, N)  # memory boom
@@ -313,11 +318,11 @@ class LAT(nn.Module):
         x = (attn @ self.v)  # B x N x heads x 1 x 3
         x = x.reshape(B, H, W, T, self.num_heads * 3).permute(0, 4, 1, 2, 3)
         if return_attn_matrix:
-            Q = nnf.normalize(q.squeeze(0).flatten(1), dim=0)
+            Q = nnf.normalize(Q.squeeze(0).flatten(1), dim=0)
             QQT = Q @ Q.transpose(0, 1)
-            K = nnf.normalize(k.squeeze(0).flatten(1), dim=0)
+            K = nnf.normalize(K.squeeze(0).flatten(1), dim=0)
             KKT = K @ K.transpose(0, 1)
-            return x, QQT, KKT
+            return x, nnf.normalize(QQT), nnf.normalize(KKT)
         else:
             return x
 
@@ -356,26 +361,26 @@ class PAN(nn.Module):
 
         self.peblock1 = PositionalEncodingLayer(2 * c + 1, dim=head_dim*num_heads[4])
         self.flow_peblock1 = PositionalEncodingLayer(3, dim=head_dim * num_heads[4] * 27 // 2)
-        self.lat1 = LAT(inshape, head_dim*num_heads[3], num_heads[4], qk_scale=scale)
+        self.lat1 = LAT(head_dim*num_heads[3], num_heads[4], qk_scale=scale)
         self.dfi1 = DFIBlock(3 * num_heads[4], 3 * 2 * num_heads[4])
 
         self.peblock2 = PositionalEncodingLayer(4 * c + 1, dim=head_dim * num_heads[3])
         self.flow_peblock2 = PositionalEncodingLayer(3, dim=head_dim * num_heads[3] * 27 // 2)
-        self.lat2 = LAT([s // 2 for s in inshape], head_dim * num_heads[3], num_heads[3], qk_scale=scale)
+        self.lat2 = LAT(head_dim * num_heads[3], num_heads[3], qk_scale=scale)
         self.dfi2 = DFIBlock(3 * num_heads[3], 3 * 2 * num_heads[3])
 
         self.peblock3 = PositionalEncodingLayer(8 * c + 1, dim=head_dim * num_heads[2])
         self.flow_peblock3 = PositionalEncodingLayer(3, dim=head_dim * num_heads[2] * 27 // 2)
-        self.lat3 = LAT([s // 4 for s in inshape], head_dim * num_heads[2], num_heads[2], qk_scale=scale)
+        self.lat3 = LAT(head_dim * num_heads[2], num_heads[2], qk_scale=scale)
         self.dfi3 = DFIBlock(3 * num_heads[2], 3 * num_heads[2] * 2)
 
         self.peblock4 = PositionalEncodingLayer(16 * c + 1, dim=head_dim * num_heads[1])
         self.flow_peblock4 = PositionalEncodingLayer(3, dim=head_dim * num_heads[1] * 27 // 2)
-        self.lat4 = LAT([s // 8 for s in inshape], head_dim * num_heads[1], num_heads[1], qk_scale=scale)
+        self.lat4 = LAT(head_dim * num_heads[1], num_heads[1], qk_scale=scale)
         self.dfi4 = DFIBlock(3 * num_heads[1], 3 * num_heads[1] * 2)
 
         self.peblock5 = PositionalEncodingLayer(32 * c + 1, dim=head_dim * num_heads[0])
-        self.lat5 = LAT([s // 16 for s in inshape], head_dim * num_heads[0], num_heads[0], qk_scale=scale)
+        self.lat5 = LAT(head_dim * num_heads[0], num_heads[0], qk_scale=scale)
         self.dfi5 = DFIBlock(3 * num_heads[0], 3 * num_heads[0] * 2)
 
         self.transformer = nn.ModuleList()
@@ -428,7 +433,7 @@ class PAN(nn.Module):
 
         y_moved = self.transformer[0](moving, flow)
 
-        return y_moved, flow, nnf.normalize(QQT), nnf.normalize(KKT)
+        return y_moved, flow, QQT, KKT
 
 if __name__ == '__main__':
     inshape = (1, 1, 160, 160, 192)
