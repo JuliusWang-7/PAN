@@ -10,3 +10,9 @@ By Zhuoyuan Wang, Haiqiao Wang, Yi Wang.
 Code has been tested with Python 3.9 and PyTorch 1.12.1.
 
 ### Citation
+@article{wang2024pyramid,
+  title={Pyramid Attention Network for Medical Image Registration},
+  author={Wang, Zhuoyuan and Wang, Haiqiao and Wang, Yi},
+  journal={arXiv preprint arXiv:2402.09016},
+  year={2024}
+}
